@@ -916,7 +916,7 @@ function vSettings() {
       <li>⚠️ 계정 동기화는 없어요. 기기를 바꿀 때는 백업 파일로 옮겨요.</li>
       <li>⚠️ 녹음 중 앱을 나가면 그 녹음은 복구되지 않을 수 있어요.</li>
       <li>⚠️ OPIc 평가는 연습용이며 공식 등급이 아니에요.</li></ul></details></div>`;
-  h += `<p class="hint" style="text-align:center;margin:16px">Pixie Speaking Studio · v1.0</p>`;
+  h += `<p class="hint" style="text-align:center;margin:16px">Pixie Speaking Studio · v1.2</p>`;
   return h;
 }
 
@@ -1203,7 +1203,7 @@ async function init() {
   syncAI(); Speech.pick();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   render();
-  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
 }
 window.__PSS = S; // for tests
 init();

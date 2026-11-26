@@ -217,7 +217,7 @@ const AI = {
           'anthropic-version': '2023-06-01',
           'anthropic-dangerous-direct-browser-access': 'true'
         },
-        body: JSON.stringify({ model: model || this.evalModel, max_tokens: maxTokens || 1500, system, messages, temperature: temperature == null ? 0.4 : temperature })
+        body: JSON.stringify(Object.assign({ model: model || this.evalModel, max_tokens: maxTokens || 1500, messages }, system ? { system } : {}))
       });
     } catch (e) { throw Object.assign(new Error('인터넷 연결을 확인해 주세요'), { code: 'network' }); }
     let j = null; try { j = await r.json(); } catch (e) {}
@@ -227,7 +227,7 @@ const AI = {
       if (r.status === 401) { code = 'auth'; msg = 'API 키가 올바르지 않아요. 설정에서 키를 확인해 주세요.'; }
       else if (r.status === 429) { code = 'rate'; msg = '요청이 많아서 잠시 막혔어요. 1분 뒤 다시 시도해 주세요.'; }
       else if (r.status === 400 && /credit|balance/i.test(m)) { code = 'credit'; msg = '크레딧이 부족해요. 콘솔에서 충전해 주세요.'; }
-      else if (r.status === 404 || /model/i.test(m) && r.status === 400) { code = 'model'; msg = '모델 이름을 찾을 수 없어요. 설정에서 모델을 바꿔 주세요. (' + m + ')'; }
+      else if (r.status === 404 || (r.status === 400 && /model/i.test(m) && /not.?found|invalid model|does not exist/i.test(m))) { code = 'model'; msg = '모델 이름을 찾을 수 없어요. 설정에서 모델을 바꿔 주세요. (' + m + ')'; }
       else if (r.status === 529 || r.status >= 500) { code = 'server'; msg = 'AI 서버가 바빠요. 잠시 뒤 다시 시도해 주세요.'; }
       throw Object.assign(new Error(msg), { code });
     }

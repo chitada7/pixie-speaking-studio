@@ -90,7 +90,7 @@ input,textarea,select{font:inherit;font-size:16px;color:var(--ink)}
 .meta{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--ink2)}
 textarea{width:100%;min-height:110px;border:1.5px solid var(--line);border-radius:14px;padding:12px 14px;resize:vertical;background:#fff;line-height:1.5}
 textarea:focus,input:focus,select:focus{border-color:var(--indigo);outline:0}
-input[type=text],input[type=password],input[type=date],select{width:100%;min-height:48px;border:1.5px solid var(--line);border-radius:12px;padding:0 12px;background:#fff}
+input[type=text],input[type=password],input[type=date],select{width:100%;max-width:100%;display:block;-webkit-appearance:none;appearance:none;min-height:48px;border:1.5px solid var(--line);border-radius:12px;padding:0 12px;background:#fff}
 
 /* recorder */
 .rec{display:flex;flex-direction:column;align-items:center;gap:12px;padding:8px 0}
@@ -195,3 +195,7 @@ details summary{cursor:pointer;font-weight:700;font-size:14px;color:var(--ink2);
 .kv dt{color:var(--ink2);font-weight:600}.kv dd{margin:0}
 .divider{height:1px;background:var(--line);margin:12px 0}
 @media (prefers-reduced-motion:reduce){.dot.on{animation:none}.wave i{transition:none}}
+
+input[type=date]{line-height:48px;text-align:left}
+input[type=date]::-webkit-date-and-time-value{text-align:left}
+select{background-image:none}

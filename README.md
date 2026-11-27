@@ -13,7 +13,8 @@
 - `index.html` 화면 뼈대 · `style.css` 디자인
 - `data.js` 카테고리, 기본 문제, 끝맺음 문장, OPIc 질문은행
 - `core.js` 저장(IndexedDB), 녹음·음성인식, 음성 재생, Claude API 호출
-- `prompts.js` 평가·롤플레이 프롬프트
+- `prompts.js` 평가·롤플레이·표현 학습 프롬프트
+- `expr.js` 표현장(Expression Memory Loop): 핵심 표현 추천, 패턴 상세, 익히기, 간격 반복 복습
 - `app.js` 화면과 동작
 - `sw.js`, `manifest.webmanifest` 홈 화면 앱(PWA)
 

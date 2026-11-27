@@ -13,9 +13,12 @@ Core principles:
 - Point out Korean-style literal translation (직역) when present.
 - Write all explanations in natural, concise Korean (해요체). English examples stay in English.`;
 
+const KX = `"key_expressions": [{"en":"reusable form of the expression (use ~ for open slots, e.g. 'I had no way of knowing ~'; for grammar frames give a natural example form like 'get the difference refunded')","ko":"정확한 한국어 의미","kind":"pattern (reusable grammar frame) | fixed (fixed phrase/collocation)","context":"한국어: 실제로 언제 쓰는지","example":"one English example tied to the learner's own answer","example_ko":"그 예문의 한국어","why":"한국어: 왜 이 표현이 자연스러운지 한 줄","func":"one of 요청|거절 대응|이유 설명|조건 제시|불만 제기|사과·양해|확인 질문|의견 말하기|경험 서술|연결어|기타"}] (1-3 expressions genuinely worth learning from THIS answer, preferring ones the learner lacked or used awkwardly; [] if none),
+ "used_expressions": [exact strings from MY EXPRESSIONS that the learner actually used appropriately in this answer; [] if none]`;
+function myLine(list) { return list && list.length ? `MY EXPRESSIONS (the learner is practicing these; detect if any were used appropriately, small grammar slips are fine): ${JSON.stringify(list)}` : 'MY EXPRESSIONS: none'; }
 const VERD = `"verdict": "PASS" (intent is clear and complete) | "PASS_FIX" (intent comes across but there is an important error) | "RETRY" (intent unclear, misleading, or the thought was not finished)`;
 
-function realEval({ situation, kind, role, mode, text, written, metrics, attempts, stem, extra }) {
+function realEval({ situation, kind, role, mode, text, written, metrics, attempts, stem, extra, myExprs }) {
   const speech = mode !== 'write';
   const lines = [];
   lines.push(`Situation (Korean, shown to learner): ${situation}`);
@@ -30,6 +33,7 @@ function realEval({ situation, kind, role, mode, text, written, metrics, attempt
     if (metrics) lines.push(`Measured: time to first speech ${metrics.firstMs == null ? 'unknown' : (metrics.firstMs / 1000).toFixed(1) + 's'}, speaking time ${(metrics.durMs / 1000).toFixed(1)}s, pauses within speech ${(metrics.silenceMs / 1000).toFixed(1)}s, long pauses (>1.5s) ${metrics.longPauses}, attempt #${attempts || 1}. Use these only as context for the spontaneity / fluency comment; speed is never more important than completion.`);
   }
   lines.push(`Korean words may appear inside the English (the learner wrote Korean where they did not know the English). Do not lower the verdict for that alone: judge the logic and meaning, put each Korean part in "bridges" with the most natural English for this context, and use the English in essential/natural.`);
+  lines.push(myLine(myExprs));
   lines.push(`\nLearner's answer:\n"""${text}"""`);
   lines.push(`\nReturn ONLY JSON:
 {
@@ -46,12 +50,13 @@ function realEval({ situation, kind, role, mode, text, written, metrics, attempt
  "bridges": [{"ko":"한국어 부분","en":"natural English","note":"한국어 짧은 설명"}],
  "stt_suspects": [{"heard":"...","likely":"..."}],
  "weak_tags": [subset of ${JSON.stringify(TAGS)}],
- "tip": "한국어: 다음 시도에서 집중할 한 가지"
+ "tip": "한국어: 다음 시도에서 집중할 한 가지",
+ ${KX}
 }`);
-  return { system: PHILOSOPHY, messages: [{ role: 'user', content: lines.join('\n') }], maxTokens: 1400 };
+  return { system: PHILOSOPHY, messages: [{ role: 'user', content: lines.join('\n') }], maxTokens: 2000 };
 }
 
-function opicEval({ q, type, text, metrics, mode }) {
+function opicEval({ q, type, text, metrics, mode, myExprs }) {
   const sys = `You are an OPIc speaking coach. The learner targets AL (Advanced Low). AL means: paragraph-length answers with a beginning, development and end; consistent control of past/present time frames when narrating; varied description; natural connectors creating cohesion; able to explain and resolve an unfamiliar complicated situation.
 ${PHILOSOPHY}
 - This is practice feedback, never an official OPIc rating. Do not state an official grade.`;
@@ -61,6 +66,7 @@ ${PHILOSOPHY}
     `The answer comes from browser speech recognition (may be edited). Missing punctuation or misheard words are not the learner's fault; list suspicious words in stt_suspects.`,
     metrics ? `Measured: time to first speech ${metrics.firstMs == null ? 'unknown' : (metrics.firstMs / 1000).toFixed(1) + 's'}, speaking time ${(metrics.durMs / 1000).toFixed(0)}s, pauses ${(metrics.silenceMs / 1000).toFixed(0)}s, long pauses ${metrics.longPauses}.` : '',
     `Korean words may appear where the learner did not know the English: give the English in "bridges", don't lower the verdict for that alone.`,
+    myLine(myExprs),
     `\nAnswer:\n"""${text}"""`,
     `\nReturn ONLY JSON:
 {
@@ -74,10 +80,11 @@ ${PHILOSOPHY}
  "bridges": [{"ko":"...","en":"...","note":"..."}],
  "stt_suspects": [{"heard":"...","likely":"..."}],
  "weak_tags": [subset of ${JSON.stringify(TAGS)}],
- "tip": "한국어: 다음 답변에서 집중할 한 가지"
+ "tip": "한국어: 다음 답변에서 집중할 한 가지",
+ ${KX}
 }`
   ];
-  return { system: sys, messages: [{ role: 'user', content: lines.filter(Boolean).join('\n') }], maxTokens: 1600 };
+  return { system: sys, messages: [{ role: 'user', content: lines.filter(Boolean).join('\n') }], maxTokens: 2200 };
 }
 
 function dailyProblems({ cats, recent }) {
@@ -105,19 +112,19 @@ Give staged hints.
   };
 }
 
-function rolePlaySystem({ situation, role, kind, turnsLeft }) {
+function rolePlaySystem({ situation, role, kind, turnsLeft, targets }) {
   return `You are role-playing as: ${role}. Speak natural, spoken American English.
 Scene (the learner's situation, written in Korean): ${situation}
 Rules:
 - Stay in character. Reply in 1-3 short spoken sentences. No lists, no stage directions, no emojis.
 - ${kind === 'tricky' ? 'Make it realistic and a bit challenging: first refuse or state a policy, add a condition, or offer an imperfect alternative, so the learner has to explain and negotiate. Give in only when they make a clear, reasonable case.' : 'Be helpful but realistic: sometimes give a condition, an alternative, or ask a follow-up question.'}
 - If the learner's turn is unclear or unfinished (e.g. trails off with "but..." or "so..."), do NOT guess: ask a natural clarifying question like "Sorry, so what would you like me to do?"
-- Never correct the learner's English. Never switch to Korean.
+- Never correct the learner's English. Never switch to Korean.${targets && targets.length ? `\n- The learner is practicing these expressions: ${JSON.stringify(targets)}. When it fits naturally, steer the talk so they get a chance to use them, but never say them yourself first.` : ''}
 - The learner presses a button when finished speaking, so long pauses are fine. Their text comes from speech recognition and may contain small recognition errors; interpret charitably unless the meaning is truly unclear.
 - When the situation is resolved or clearly cannot go further${turnsLeft != null ? ` (about ${turnsLeft} learner turns left)` : ''}, close naturally in one sentence and append the token [END].`;
 }
 
-function rolePlayFeedback({ situation, role, log }) {
+function rolePlayFeedback({ situation, role, log, myExprs }) {
   const convo = log.map(m => (m.role === 'ai' ? role.toUpperCase() : 'LEARNER') + ': ' + m.text + (m.role === 'me' && m.firstMs != null ? `   [started after ${(m.firstMs / 1000).toFixed(1)}s, spoke ${(m.durMs / 1000).toFixed(1)}s]` : '')).join('\n');
   return {
     system: PHILOSOPHY,
@@ -134,8 +141,9 @@ Return ONLY JSON:
  "completion_note":"한국어: 말을 끝까지 맺었는지, 끊긴 턴이 있었는지",
  "reaction_note":"한국어: 반응 시간과 말하기 흐름에 대한 한 문장 (속도보다 완결이 우선)",
  "key_errors":[{"original":"...","better":"...","why":"한국어"}] (max 4),
- "weak_tags":[subset of ${JSON.stringify(TAGS)}]}` }],
-    maxTokens: 1500
+ "weak_tags":[subset of ${JSON.stringify(TAGS)}],
+ "used_expressions":[exact strings from ${JSON.stringify(myExprs || [])} that the learner used appropriately; [] if none]}` }],
+    maxTokens: 1700
   };
 }
 
@@ -181,5 +189,55 @@ Return ONLY JSON:
   };
 }
 
-window.PSS_PROMPTS = { realEval, opicEval, dailyProblems, hints, rolePlaySystem, rolePlayFeedback, drillMake, drillCheck, mockReport };
+function exprDetail(src, funcs) {
+  return {
+    system: `You are an English teacher explaining one useful expression to a Korean B2 learner, like a patient tutor. Explanations in natural Korean (해요체), short and clear. Return only JSON.`,
+    messages: [{ role: 'user', content: `Expression: "${src.en}"${src.ko ? ` (${src.ko})` : ''}${src.kind ? `, kind: ${src.kind}` : ''}
+Where the learner first met it (Korean situation): ${src.scenario || 'unknown'}
+Learner's original sentence there: ${src.orig || 'unknown'}
+Existing examples (do not repeat): ${JSON.stringify(src.examples || [])}
+
+Return ONLY JSON:
+{"en":"canonical form","ko":"정확한 한국어 의미","kind":"pattern|fixed",
+ "usage":"한국어: 어떤 상황에서 쓰는지 (1-2문장)",
+ "structure":"기본 문장 구조, e.g. 'I had no way of knowing + 명사/that절' or 'get + 목적어 + 과거분사'",
+ "pattern_note":"한국어: 공통 문법 패턴인지, 덩어리로 외우는 고정 표현인지 구분해 한두 문장",
+ "collocations":["자주 같이 쓰는 단어 조합"] (2-4),
+ "related":["같은 패턴을 쓰는 다른 표현"] (pattern only, 2-3; [] for fixed),
+ "nuance":[{"vs":"비슷한 영어 표현","note":"한국어: 뉘앙스 차이"}] (1-3),
+ "examples":[{"en":"...","ko":"...","context":"한국어 상황 라벨 (예: 호텔 체크인)"}] (4, each a clearly different real-life situation; not the same sentence with swapped words),
+ "mistakes":[{"wrong":"...","right":"...","why":"한국어"}] (1-2 mistakes Korean learners often make),
+ "func":"one of ${funcs.join('|')}",
+ "recall_situation":"Korean: restate the original situation (or invent one if unknown) so the learner must produce this expression; ends with what to say; NO English",
+ "apply_situations":["Korean situation 1","Korean situation 2"] (two NEW contexts different from the original and from each other, each ends with what to say; NO English)}` }],
+    maxTokens: 2200
+  };
+}
+function exprCheck({ en, kind, structure, situation, text, hints }) {
+  return {
+    system: PHILOSOPHY + '\nYou judge two things separately: (1) did the message work in the situation, (2) did the learner actually recall and use the TARGET expression. Return only JSON.',
+    messages: [{ role: 'user', content: `Target expression: "${en}"${kind ? ' (' + kind + ')' : ''}${structure ? `, core structure: ${structure}` : ''}
+Situation (Korean): ${situation}
+Hints used before answering: ${hints || 0} (3 means the full expression was shown)
+Learner (speech recognition, may have small recognition errors): <<${text}>>
+
+Rules:
+- comm_pass: true if the intent is clear and fits the situation, even WITHOUT the target expression.
+- used: "exact" if the learner used the target expression/pattern (inflection, tense, pronoun changes and small grammar slips are fine), "equivalent" if they expressed the same idea naturally another way, "none" otherwise.
+- structure_ok: false only if they used the expression but broke its core structure.
+Return ONLY JSON: {"comm_pass":true/false,"used":"exact|equivalent|none","structure_ok":true/false,"essential":"minimal correction keeping their words","natural":"one natural version that uses the target expression","feedback":"한국어 1-2문장"}` }],
+    maxTokens: 600
+  };
+}
+function reviewSituations({ items }) {
+  return {
+    system: 'You write short Korean practice situations for spaced-repetition review of English expressions. Return only JSON.',
+    messages: [{ role: 'user', content: `For each expression, write ONE new realistic situation in Korean (1-2 sentences, ends with what the learner should say) where the expression is the natural thing to say. It must differ from the listed previous situations. Do NOT include any English.
+${JSON.stringify(items.map(i => ({ id: i.id, expression: i.en, meaning: i.ko, previous: i.used })))}
+Return ONLY JSON: {"items":[{"id":"...","ko":"..."}]}` }],
+    maxTokens: 1500
+  };
+}
+
+window.PSS_PROMPTS = { exprDetail, exprCheck, reviewSituations, realEval, opicEval, dailyProblems, hints, rolePlaySystem, rolePlayFeedback, drillMake, drillCheck, mockReport };
 })();

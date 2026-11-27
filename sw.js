@@ -1,6 +1,6 @@
 /* Network-first cache so the app opens offline but always gets updates when online */
-const C = 'pss-v3';
-const FILES = ['./', 'index.html', 'style.css?v=3', 'data.js?v=3', 'core.js?v=3', 'prompts.js?v=3', 'app.js?v=3', 'manifest.webmanifest', 'icon-192.png', 'apple-touch-icon.png'];
+const C = 'pss-v4';
+const FILES = ['./', 'index.html', 'style.css?v=4', 'data.js?v=4', 'core.js?v=4', 'prompts.js?v=4', 'expr.js?v=4', 'app.js?v=4', 'manifest.webmanifest', 'icon-192.png', 'apple-touch-icon.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(C).then(c => c.addAll(FILES)).catch(() => {})); self.skipWaiting(); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== C).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', e => {

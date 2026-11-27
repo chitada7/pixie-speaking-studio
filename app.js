@@ -39,6 +39,7 @@ const DEFAULT = () => ({
 });
 const S = { view: 'home', p: {}, data: DEFAULT(), rec: null, busy: {}, err: {}, calMonth: null, sheet: null, shownAt: performance.now(), stack: [] };
 const speakHandlers = {};
+const EXT = { actions: {}, keyExprHTML: () => '', myExprList: () => [], rpTargets: () => [], recordUsage: () => {}, homeCard: () => '', dayHTML: () => '', settingsHTML: () => '', migrate: () => {}, dueCount: () => 0 };
 
 let saveT = null;
 function save(now) {
@@ -85,7 +86,7 @@ function renderSheet() {
   let el = $('#sheet');
   if (!S.sheet) { if (el) el.remove(); return; }
   if (!el) { el = document.createElement('div'); el.id = 'sheet'; document.body.appendChild(el); }
-  el.innerHTML = `<div class="dim-bg" data-act="sheetBg"><div class="sheet" role="dialog"><div class="grab"></div>${S.sheet}</div></div>`;
+  el.innerHTML = `<div class="dim-bg" data-act="sheetBg"><div class="sheet" role="dialog"><div class="sheet-top"><div class="grab"></div><button class="sheet-x" data-act="closeSheet" aria-label="닫기">✕</button></div>${S.sheet}</div></div>`;
   hydrate(el);
 }
 
@@ -158,7 +159,7 @@ function allAttempts(filterDays) {
   for (const k in S.data.days) {
     if (filterDays && !filterDays(k)) continue;
     const d = S.data.days[k];
-    d.problems.forEach(p => (p.speaks || []).forEach(a => out.push(Object.assign({ day: k, kind: 'real' }, a))));
+    (d.oldProblems || []).concat(d.problems).forEach(p => (p.speaks || []).forEach(a => out.push(Object.assign({ day: k, kind: 'real' }, a))));
     d.log.forEach(l => {
       (l.attempts || []).forEach(a => out.push(Object.assign({ day: k, kind: l.type }, a)));
       if (l.type === 'mock') (l.items || []).forEach(it => it.attempt && out.push(Object.assign({ day: k, kind: 'mock' }, it.attempt)));
@@ -188,7 +189,7 @@ function streak() {
   for (;;) { const k = dkey(d); const x = S.data.days[k]; const act = x && (totalSecs(x) > 30 || x.problems.some(p => p.status === 'done') || x.log.length); if (!act) { if (n === 0 && k === today()) { d.setDate(d.getDate() - 1); continue; } break; } n++; d.setDate(d.getDate() - 1); }
   return n;
 }
-function dueExprs() { const t = today(); return S.data.exprs.filter(e => e.status === 'mastered' && e.reviewAt && e.reviewAt <= t); }
+
 function dday() { const e = S.data.settings.examDate; if (!e) return null; const a = new Date(e + 'T00:00:00'), b = new Date(today() + 'T00:00:00'); return Math.round((a - b) / 86400000); }
 
 /* ---------- speak component ---------- */
@@ -330,12 +331,6 @@ function verdictHTML(ev) {
   const v = VK[ev.verdict] || [ev.verdict, ''];
   return `<div class="verdict v-${esc(ev.verdict)}"><div>${esc(v[0])}<small>${esc(ev.verdict_reason || v[1])}</small></div></div>`;
 }
-function bridgesHTML(ev, ctx) {
-  const b = (ev.bridges || []).filter(x => x && x.ko && x.en);
-  if (!b.length) return '';
-  return b.map((x, i) => `<div class="bridge"><p class="lbl" style="color:var(--indigo)">모르는 표현 연결</p><div><b>${esc(x.ko)}</b> → <b>${esc(x.en)}</b></div>${x.note ? `<p class="note">${esc(x.note)}</p>` : ''}
-    <button class="btn sm indigo" style="margin-top:8px" data-act="saveBridge" data-ctx="${esc(ctx)}" data-i="${i}">표현장에 저장</button></div>`).join('');
-}
 function sttHTML(ev) {
   const s = (ev.stt_suspects || []).filter(x => x && x.heard);
   if (!s.length) return '';
@@ -355,8 +350,8 @@ function realEvalHTML(ev, ctx, opts) {
       `<details class="nat" ${opts.openNatural ? 'open' : ''}><summary class="k" style="color:var(--indigo)">NATURAL ALTERNATIVE · 눌러서 보기</summary><div class="v">${esc(ev.natural)}</div>${ev.natural_note ? `<p class="note">${esc(ev.natural_note)}</p>` : ''}</details>`}
     </div>
     ${sttHTML(ev)}
-    ${bridgesHTML(ev, ctx)}
     ${ev.tip ? `<p class="note" style="margin-top:10px">👉 ${esc(ev.tip)}</p>` : ''}
+    ${EXT.keyExprHTML(ev, ctx)}
   </div>`;
 }
 function opicEvalHTML(ev, ctx) {
@@ -369,8 +364,8 @@ function opicEvalHTML(ev, ctx) {
     ${(ev.fixes || []).length ? `<p class="lbl" style="margin-top:12px">핵심 교정</p><ul class="fixlist">${ev.fixes.map(f => `<li><s>${esc(f.original)}</s><br><span class="b">${esc(f.better)}</span>${f.why ? `<div class="note">${esc(f.why)}</div>` : ''}</li>`).join('')}</ul>` : ''}
     ${ev.upgrade ? `<details style="margin-top:10px"><summary>내 답변을 더 자연스럽게 (눌러서 보기)</summary><div class="hintbox">${esc(ev.upgrade)}</div></details>` : ''}
     ${sttHTML(ev)}
-    ${bridgesHTML(ev, ctx)}
     ${ev.tip ? `<p class="note" style="margin-top:10px">👉 ${esc(ev.tip)}</p>` : ''}
+    ${EXT.keyExprHTML(ev, ctx)}
     <p class="hint" style="margin-top:8px">연습용 평가예요. 실제 OPIc 등급과는 달라요.</p>
   </div>`;
 }
@@ -393,7 +388,6 @@ function vHome() {
   const probsDone = d.problems.filter(p => p.status === 'done').length;
   const w0 = weekStats(0), w1 = weekStats(1);
   const weak = weakCounts().slice(0, 5); const wmax = weak.length ? weak[0][1] : 1;
-  const due = dueExprs().length;
   const t = S.data.timer;
   let h = `<div class="top"><div style="flex:1"><div class="brand">Pixie Speaking Studio</div><h1>오늘도 끝까지 말해 봐요</h1></div></div>`;
   if (!s.apiKey && !s.setupDone) {
@@ -424,9 +418,7 @@ function vHome() {
   h += `<div class="card"><div style="display:flex;align-items:center"><h2 style="flex:1;margin:0">반복 약점</h2><span class="hint" style="margin:0">최근 30일</span></div>
     ${weak.length ? `<div class="bars">${weak.map(([k, v]) => `<div class="bar"><span>${esc(k)}</span><i style="width:${Math.max(8, Math.round(v / wmax * 100))}%;max-width:calc(100% - 140px)"></i><em>${v}회</em></div>`).join('')}</div>` : '<p class="hint">평가를 받으면 자주 나오는 약점이 여기에 쌓여요.</p>'}
   </div>`;
-  const ex = S.data.exprs;
-  h += `<button class="card" style="display:block;width:100%;text-align:left" data-act="go" data-v="bank"><div style="display:flex;align-items:center"><h2 style="flex:1;margin:0">표현 숙달</h2><span class="ar" style="color:var(--ink3);font-size:20px">›</span></div>
-    <div class="stats" style="margin-top:8px"><div class="stat"><b>${ex.filter(e => e.status !== 'mastered').length}</b><span>학습 중</span></div><div class="stat"><b>${ex.filter(e => e.status === 'mastered').length}</b><span>숙달</span></div><div class="stat"><b style="${due ? 'color:var(--accent)' : ''}">${due}</b><span>오늘 복습</span></div></div></button>`;
+  h += EXT.homeCard();
   return h;
 }
 function trend(a, b, upGood, unit) {
@@ -474,14 +466,14 @@ function vReal() {
     <button class="step ${cnt('spont') ? 'done' : ''}" data-act="go" data-v="spont"><span class="n">${cnt('spont') ? '✓' : '2'}</span><span class="tx"><b>즉흥 발화</b><span>영작 없이 상황만 보고 바로 말하기 · 오늘 ${cnt('spont')}개</span></span><span class="ar">›</span></button>
     <button class="step ${cnt('finish') ? 'done' : ''}" data-act="go" data-v="finish"><span class="n">${cnt('finish') ? '✓' : '3'}</span><span class="tx"><b>끝맺음 훈련</b><span>Finish your thought · 오늘 ${cnt('finish')}개</span></span><span class="ar">›</span></button>
     <button class="step ${rpDone ? 'done' : ''}" data-act="go" data-v="rpPick"><span class="n">${rpDone ? '✓' : '4'}</span><span class="tx"><b>AI 롤플레이</b><span>직원과 실제로 대화하기 · 하루 1회</span></span><span class="ar">›</span></button>
-    <button class="step" data-act="go" data-v="review"><span class="n">5</span><span class="tx"><b>오늘의 복습</b><span>핵심 오류 · 표현 숙달 ${dueExprs().length ? '· 복습 ' + dueExprs().length + '개' : ''}</span></span><span class="ar">›</span></button>
+    <button class="step" data-act="go" data-v="review"><span class="n">5</span><span class="tx"><b>오늘의 복습</b><span>핵심 오류 다시 보기 · 표현 복습 ${EXT.dueCount() ? EXT.dueCount() + '개' : ''}</span></span><span class="ar">›</span></button>
   </div>
   <p class="hint" style="margin:12px 4px">시간이 없으면 즉흥 발화와 롤플레이만 해도 돼요. 중간에 나가도 자동 저장돼요.</p>`;
   if (d.problems.length) h += `<div class="row"><button class="btn line sm" data-act="makeTodayAgain">오늘 문제 새로 받기</button></div>`;
   return h;
 }
 
-function findProblem(id) { for (const k in S.data.days) { const p = S.data.days[k].problems.find(x => x.id === id); if (p) return p; } return null; }
+function findProblem(id) { for (const k in S.data.days) { const d = S.data.days[k]; const p = d.problems.find(x => x.id === id) || (d.oldProblems || []).find(x => x.id === id); if (p) return p; } return null; }
 function vProb() {
   const p = findProblem(S.p.id); if (!p) return topBar('문제') + '<div class="card">문제를 찾을 수 없어요.</div>';
   const c = catOf(p.kind ? p.cat : p.cat); const d = day(); const idx = d.problems.indexOf(p);
@@ -516,12 +508,12 @@ function vProb() {
 }
 async function submitProblemSpeech(p, a, key, retell) {
   const ev = await runAI(key, async () => {
-    const pr = P.realEval({ situation: p.ko, kind: p.kind, role: p.role, mode: retell ? 'retell' : 'speak', text: a.transcript, written: p.write && p.write.text, metrics: a, attempts: (p.speaks || []).length + 1, extra: retell ? 'Judge success by whether the learner rebuilt the idea with a natural structure in their own words; it need not match any model sentence.' : '' });
+    const pr = P.realEval({ myExprs: EXT.myExprList(), situation: p.ko, kind: p.kind, role: p.role, mode: retell ? 'retell' : 'speak', text: a.transcript, written: p.write && p.write.text, metrics: a, attempts: (p.speaks || []).length + 1, extra: retell ? 'Judge success by whether the learner rebuilt the idea with a natural structure in their own words; it need not match any model sentence.' : '' });
     copyStore[key] = promptText(pr);
     return AI.json(pr);
   });
   a.mode = retell ? 'retell' : 'speak';
-  if (ev) a.eval = ev;
+  if (ev) { a.eval = ev; EXT.recordUsage(ev.used_expressions, { ref: a.id, situation: p.ko, text: a.transcript, where: '실전' }); }
   p.speaks = p.speaks || []; p.speaks.push(a);
   if (ev) { p.status = 'done'; S.rec = null; S.p.retell = false; }
   save(); render();
@@ -568,11 +560,11 @@ function hintHTML(cur) {
 }
 async function submitGeneric(cur, a, key, mode) {
   const ev = await runAI(key, async () => {
-    const pr = P.realEval({ situation: cur.situation || cur.ko, kind: cur.kind, role: cur.role, mode, text: a.transcript, metrics: a, attempts: cur.attempts.length + 1, stem: cur.stem });
+    const pr = P.realEval({ myExprs: EXT.myExprList(), situation: cur.situation || cur.ko, kind: cur.kind, role: cur.role, mode, text: a.transcript, metrics: a, attempts: cur.attempts.length + 1, stem: cur.stem });
     copyStore[key] = promptText(pr);
     return AI.json(pr);
   });
-  a.mode = mode; if (ev) a.eval = ev;
+  a.mode = mode; if (ev) { a.eval = ev; EXT.recordUsage(ev.used_expressions, { ref: a.id, situation: cur.situation || cur.stem, text: a.transcript, where: mode === 'finish' ? '끝맺음' : '즉흥 발화' }); }
   cur.attempts.push(a); if (ev) S.rec = null;
   save(); render();
 }
@@ -630,7 +622,7 @@ function rpApiMessages(l) {
 }
 async function rpAI(l) {
   const turns = l.msgs.filter(x => x.role === 'me').length;
-  const r = await runAI('rp' + l.id, async () => AI.call({ system: P.rolePlaySystem({ situation: l.situation, role: l.role, kind: l.kind, turnsLeft: Math.max(0, 8 - turns) }), messages: rpApiMessages(l), model: AI.chatModel, maxTokens: 300, temperature: 0.7 }));
+  const r = await runAI('rp' + l.id, async () => AI.call({ system: P.rolePlaySystem({ situation: l.situation, role: l.role, kind: l.kind, turnsLeft: Math.max(0, 8 - turns), targets: l.targets || (l.targets = EXT.rpTargets()) }), messages: rpApiMessages(l), model: AI.chatModel, maxTokens: 300, temperature: 0.7 }));
   if (!r) return;
   let t = r.text.trim(); let end = false;
   if (/\[END\]/.test(t)) { end = true; t = t.replace(/\[END\]/g, '').trim(); }
@@ -685,8 +677,8 @@ async function rpFeedback(id) {
   if (!l) return;
   if (!l.msgs.some(m => m.role === 'me')) { toast('한 번 이상 대답한 뒤 피드백을 받을 수 있어요.'); return; }
   Speech.stop(); S.rec = null; Rec.cancel();
-  const f = await runAI('rpf' + l.id, async () => AI.json(P.rolePlayFeedback({ situation: l.situation, role: l.role, log: l.msgs })));
-  if (f) { l.feedback = f; l.ended = true; save(); render(); }
+  const f = await runAI('rpf' + l.id, async () => AI.json(P.rolePlayFeedback({ situation: l.situation, role: l.role, log: l.msgs, myExprs: EXT.myExprList() })));
+  if (f) { l.feedback = f; l.ended = true; EXT.recordUsage(f.used_expressions, { ref: l.id, situation: l.situation, text: l.msgs.filter(m => m.role === 'me').map(m => m.text).join(' / '), where: '롤플레이' }); save(); render(); }
 }
 
 /* review */
@@ -698,9 +690,8 @@ function vReview() {
     d.problems.forEach(p => { const a = (p.speaks || []).slice(-1)[0]; const ev = a && a.eval || p.write && p.write.eval; if (ev && ev.verdict !== 'PASS') items.push({ k, ko: p.ko, ev, written: p.write && p.write.eval && p.write.eval.verdict === 'PASS' && a && a.eval && a.eval.verdict !== 'PASS' }); });
     d.log.forEach(l => { const a = (l.attempts || []).slice(-1)[0]; if (a && a.eval && a.eval.verdict && a.eval.verdict !== 'PASS') items.push({ k, ko: l.situation || l.stem || l.q, ev: a.eval }); });
   }
-  const due = dueExprs(); const learning = S.data.exprs.filter(e => e.status !== 'mastered');
   let h = topBar('오늘의 복습', '최근 7일');
-  h += `<div class="card"><h2>표현 숙달</h2>${due.length || learning.length ? `<div class="steps">${due.concat(learning).slice(0, 6).map(e => `<button class="step" data-act="go" data-v="drill" data-id="${e.id}"><span class="n">${e.status === 'mastered' ? '↻' : '•'}</span><span class="tx"><b>${esc(e.en)}</b><span>${esc(e.ko || '')} · ${e.status === 'mastered' ? '복습할 때예요' : '응용 3문제'}</span></span><span class="ar">›</span></button>`).join('')}</div>` : '<p class="hint">평가에서 나온 표현을 표현장에 저장하면 여기서 연습해요.</p>'}</div>`;
+  h += `<div class="card"><h2>표현 복습</h2><p class="hint" style="margin:0 0 8px">복습할 표현 ${EXT.dueCount()}개 · 한국어 상황만 보고 떠올려요</p><div class="row"><button class="btn accent" data-act="xReview" data-v="due" ${EXT.dueCount() ? '' : 'disabled'}>표현 복습 시작</button><button class="btn ghost" data-act="go" data-v="bank">표현장</button></div></div>`;
   h += `<div class="sec-title">다시 볼 문장 ${items.length}개</div>`;
   if (!items.length) h += '<div class="card"><p class="hint" style="margin:0">최근 7일 동안 PASS 아닌 문장이 없어요.</p></div>';
   items.slice(-10).reverse().forEach(it => {
@@ -760,11 +751,11 @@ function vOq() {
 }
 async function submitOpic(l, a, key) {
   const ev = await runAI(key, async () => {
-    const pr = P.opicEval({ q: l.q, type: typeKo(l.t), text: a.transcript, metrics: a, mode: 'practice' });
+    const pr = P.opicEval({ myExprs: EXT.myExprList(), q: l.q, type: typeKo(l.t), text: a.transcript, metrics: a, mode: 'practice' });
     copyStore[key] = promptText(pr);
     return AI.json(pr);
   });
-  if (ev) a.eval = ev; a.mode = 'opic';
+  if (ev) { a.eval = ev; EXT.recordUsage(ev.used_expressions, { ref: a.id, situation: l.ko, text: a.transcript, where: 'OPIc' }); } a.mode = 'opic';
   l.attempts.push(a); if (ev) S.rec = null;
   save(); render();
 }
@@ -823,67 +814,6 @@ async function mockReport(l) {
   if (r) { l.report = r; save(); render(); }
 }
 
-/* expression bank */
-function vBank() {
-  const f = S.p.f || 'all'; const t = today();
-  const list = S.data.exprs.filter(e => f === 'all' || (f === 'learning' && e.status !== 'mastered') || (f === 'mastered' && e.status === 'mastered') || (f === 'due' && e.status === 'mastered' && e.reviewAt <= t) || (f === 'ko' && e.fromKo)).slice().reverse();
-  let h = topBar('개인 표현장', S.data.exprs.length + '개', true);
-  h += `<div class="chips" style="margin-bottom:12px">${[['all', '전체'], ['learning', '학습 중'], ['mastered', '숙달'], ['due', '복습할 것'], ['ko', '한국어로 썼던 표현']].map(([k, v]) => `<button class="chip ${f === k ? 'on' : ''}" data-act="bankF" data-v="${k}">${v}</button>`).join('')}</div>`;
-  h += `<div class="card"><h3>직접 추가</h3><input type="text" id="nx-en" placeholder="영어 표현 (예: It turned out that…)"><input type="text" id="nx-ko" placeholder="뜻이나 메모 (선택)" style="margin-top:8px"><div class="row"><button class="btn sm" data-act="addExpr">추가</button></div></div>`;
-  if (!list.length) h += '<div class="card"><p class="hint" style="margin:0">아직 표현이 없어요. 평가 화면의 <b>표현장에 저장</b>이나 위에서 직접 추가해요.</p></div>';
-  h += list.map(e => `<button class="expr" data-act="exprOpen" data-id="${e.id}"><div style="display:flex;gap:8px;align-items:center"><span class="en" style="flex:1">${esc(e.en)}</span><span class="st st-${e.status === 'mastered' && e.reviewAt <= t ? 'review' : e.status}">${e.status === 'mastered' ? (e.reviewAt <= t ? '복습' : '숙달') : '학습 중 ' + (e.drills || []).filter(x => x.res && x.res.pass).length + '/3'}</span></div><div class="ko">${e.fromKo ? '🇰🇷 ' : ''}${esc(e.ko || '')}${e.cat ? ' · ' + esc(catOf(e.cat).ko) : ''} · ${esc(e.date)}</div></button>`).join('');
-  return h;
-}
-function exprSheet(e) {
-  return `<h2 style="margin:0 0 4px">${esc(e.en)}</h2><p class="hint">${esc(e.ko || '')}</p>
-    ${e.note ? `<p class="note">${esc(e.note)}</p>` : ''}
-    <dl class="kv" style="margin-top:12px">
-      ${e.orig ? `<dt>원래 문장</dt><dd>${esc(e.orig)}</dd>` : ''}${e.fixed ? `<dt>교정 후</dt><dd>${esc(e.fixed)}</dd>` : ''}
-      <dt>카테고리</dt><dd>${esc(e.cat ? catOf(e.cat).ko : '–')}</dd><dt>학습일</dt><dd>${esc(e.date)}</dd>
-      <dt>상태</dt><dd>${e.status === 'mastered' ? '숙달 · 다음 복습 ' + esc(e.reviewAt || '') : '학습 중'}</dd>
-      <dt>응용 결과</dt><dd>${(e.drills || []).map(d => d.res ? (d.res.pass ? '✅' : '🔁') : '·').join(' ') || '아직 없음'}</dd>
-      <dt>실제 발화</dt><dd>${e.spoken ? '성공' : '아직'}</dd></dl>
-    <p class="lbl" style="margin-top:12px">수정</p><input type="text" id="ex-en" value="${esc(e.en)}"><input type="text" id="ex-ko" value="${esc(e.ko || '')}" style="margin-top:8px">
-    <div class="row"><button class="btn ghost" data-act="exprSave" data-id="${e.id}">수정 저장</button><button class="btn ghost" data-act="exprDel" data-id="${e.id}" style="color:var(--work)">삭제</button></div>
-    <div class="row"><button class="btn accent wide" data-act="exprDrill" data-id="${e.id}">${e.status === 'mastered' ? '복습 3문제' : '응용 3문제 풀기'}</button></div>`;
-}
-function vDrill() {
-  const e = S.data.exprs.find(x => x.id === S.p.id); if (!e) return topBar('응용') + '<div class="card">표현이 없어요.</div>';
-  let h = topBar('응용 3문제', e.status === 'mastered' ? '복습' : '숙달 훈련');
-  h += `<div class="card"><p class="lbl">목표 표현</p><p class="situ" style="margin:0">${esc(e.en)}</p><p class="hint">${esc(e.ko || '')}</p></div>`;
-  const set = S.p.round || e.drills;
-  if (!set || !set.length || S.p.fresh) {
-    h += `<div class="card"><p class="hint" style="margin:0 0 8px">새로운 상황 3개에서 이 표현을 직접 써 봐요. 3개 모두 정확히 쓰면 숙달이에요.</p><button class="btn wide" data-act="drillMake" data-id="${e.id}" ${S.busy['dm' + e.id] ? 'disabled' : ''}>${S.busy['dm' + e.id] ? '상황 만드는 중…' : '문제 받기'}</button>${errBox('dm' + e.id)}</div>`;
-    return h;
-  }
-  set.forEach((d, i) => {
-    h += `<div class="card"><p class="lbl">${i + 1} / 3</p><p style="margin:0 0 8px;font-weight:600">${esc(d.ko)}</p>`;
-    if (d.res) {
-      h += `<div class="verdict ${d.res.pass ? 'v-PASS' : 'v-RETRY'}"><div>${d.res.pass ? 'PASS' : '다시'}<small>${esc(d.res.feedback || '')}</small></div></div><div class="cmp"><div><div class="k">MY ANSWER</div><div class="v">${esc(d.text)}</div></div>${d.res.fixed && d.res.fixed !== d.text ? `<div><div class="k">CORRECTED</div><div class="v">${esc(d.res.fixed)}</div></div>` : ''}</div>`;
-      if (!d.res.pass) h += `<div class="row"><button class="btn sm ghost" data-act="drillRedo" data-id="${e.id}" data-i="${i}">다시 하기</button></div>`;
-    } else {
-      h += speakUI('dr' + e.id + '_' + i, { readyLabel: '말해서 답하기', onSubmit: (a, key) => drillCheck(e, i, a.transcript, key, a) });
-      h += `<details style="margin-top:6px"><summary>글로 답하기</summary><textarea id="dt${i}" placeholder="영어로 써 보세요"></textarea><div class="row"><button class="btn sm" data-act="drillWrite" data-id="${e.id}" data-i="${i}">채점</button></div>${errBox('dw' + e.id + i)}</details>`;
-    }
-    h += `</div>`;
-  });
-  return h;
-}
-async function drillCheck(e, i, text, key, a) {
-  const d = (S.p.round || e.drills)[i];
-  const res = await runAI(key, async () => AI.json(P.drillCheck({ en: e.en, situation: d.ko, text })));
-  if (!res) return;
-  d.text = text; d.res = res; d.spoken = !!(a && !a.typed);
-  if (res.pass && d.spoken) e.spoken = true;
-  S.rec = null;
-  const passes = (S.p.round || e.drills).filter(x => x.res && x.res.pass).length;
-  if (passes >= 3) {
-    if (e.status === 'mastered') { e.reviewAt = addDays(21); toast('복습 완료! 3주 뒤에 다시 확인해요.'); }
-    else { e.status = 'mastered'; e.masteredAt = today(); e.reviewAt = addDays(7); toast('숙달 PASS! 일주일 뒤에 복습해요.'); }
-  }
-  save(); render();
-}
-
 /* settings */
 function vSettings() {
   const s = S.data.settings;
@@ -897,6 +827,7 @@ function vSettings() {
     <p class="hint">평가는 정교한 Sonnet, 대화는 빠르고 저렴한 Haiku를 추천해요.</p></div>`;
   h += `<div class="card"><h2>OPIc</h2><p class="lbl">시험일</p><input type="date" id="set-exam" value="${esc(s.examDate)}">
     <p class="lbl" style="margin-top:12px">Background Survey에서 고를 주제 (모의시험 출제용)</p><div class="chips">${D.opicTopics.map(t => `<button class="chip ${s.topics.includes(t.id) ? 'on' : ''}" data-act="topic" data-v="${t.id}">${esc(t.ko)}</button>`).join('')}</div></div>`;
+  h += EXT.settingsHTML();
   h += `<div class="card"><h2>소리</h2><p class="lbl">AI 음성 속도</p><div class="chips">${[[0.8, '느리게'], [0.95, '보통'], [1.05, '빠르게']].map(([v, k]) => `<button class="chip ${s.rate === v ? 'on' : ''}" data-act="rate" data-v="${v}">${k}</button>`).join('')}</div>
     <div class="row"><button class="btn sm ghost" data-act="testVoice">목소리 들어보기</button></div>
     <p class="hint">${Speech.ok ? '아이폰 기본 영어 음성을 사용해요. 무음 모드면 소리가 안 날 수 있어요.' : '이 브라우저는 음성 재생을 지원하지 않아요. 질문이 글자로 보여요.'}</p></div>`;
@@ -916,48 +847,57 @@ function vSettings() {
       <li>⚠️ 계정 동기화는 없어요. 기기를 바꿀 때는 백업 파일로 옮겨요.</li>
       <li>⚠️ 녹음 중 앱을 나가면 그 녹음은 복구되지 않을 수 있어요.</li>
       <li>⚠️ OPIc 평가는 연습용이며 공식 등급이 아니에요.</li></ul></details></div>`;
-  h += `<p class="hint" style="text-align:center;margin:16px">Pixie Speaking Studio · v1.2</p>`;
+  h += `<p class="hint" style="text-align:center;margin:16px">Pixie Speaking Studio · v1.3</p>`;
   return h;
 }
 
 /* day detail */
+function attemptFull(a, label) {
+  const ev = a.eval;
+  return attemptLine(a, label) + (ev ? `<div class="cmp" style="margin:0 0 8px">${ev.essential && ev.essential !== ev.original ? `<div><div class="k">교정</div><div class="v">${esc(ev.essential)}</div></div>` : ''}${ev.natural ? `<div class="nat"><div class="k">NATURAL</div><div class="v">${esc(ev.natural)}</div></div>` : ''}${ev.upgrade ? `<div class="nat"><div class="k">더 자연스럽게</div><div class="v">${esc(ev.upgrade)}</div></div>` : ''}${(ev.fixes || []).map(f => `<div><div class="k">교정</div><div class="v"><s style="color:var(--work)">${esc(f.original)}</s> → ${esc(f.better)}</div></div>`).join('')}${ev.completion_note ? `<p class="note" style="margin:0">끝맺음: ${esc(ev.completion_note)}</p>` : ''}</div>` : '');
+}
 function daySheet(k) {
   const d = S.data.days[k];
-  if (!d) return `<h2>${esc(k)}</h2><p class="hint">이 날은 기록이 없어요.</p>`;
-  const cats = [...new Set(d.problems.map(p => catOf(p.cat).ko).concat(d.log.filter(l => l.cat).map(l => catOf(l.cat).ko)))];
+  const extra = EXT.dayHTML(k);
+  if (!d && !extra) return `<h2 style="margin:0 0 6px">${esc(k)}</h2><p class="hint">이 날은 기록이 없어요.</p>`;
+  if (!d) return `<h2 style="margin:0 0 6px">${esc(k)}</h2>` + extra;
+  const probs = (d.oldProblems || []).concat(d.problems);
+  const touched = probs.filter(p => p.write || (p.speaks || []).length);
+  const untouched = d.problems.filter(p => !p.write && !(p.speaks || []).length);
   const all = allAttempts(x => x === k).filter(a => a.eval);
   const pass = all.filter(a => a.eval.verdict === 'PASS').length, retry = all.filter(a => a.eval.verdict === 'RETRY').length;
-  const mastered = S.data.exprs.filter(e => e.masteredAt === k);
   let h = `<h2 style="margin:0 0 6px">${esc(k)}</h2><div class="stats"><div class="stat"><b>${fmtMin(totalSecs(d))}</b><span>학습 시간</span></div><div class="stat"><b>${pass}</b><span>PASS</span></div><div class="stat"><b>${retry}</b><span>RETRY</span></div></div>
-    <p class="hint">실전 ${fmtMin(d.secs.real)} · OPIc ${fmtMin(d.secs.opic)}${cats.length ? ' · ' + esc(cats.join(', ')) : ''}</p>`;
-  if (d.problems.length) {
-    h += `<div class="sec-title" style="margin-left:0">실전 영작 5문제</div>`;
-    d.problems.forEach((p, i) => {
+    <p class="hint">실전 ${fmtMin(d.secs.real)} · OPIc ${fmtMin(d.secs.opic)}</p>`;
+  if (touched.length) {
+    h += `<div class="sec-title" style="margin-left:0">실전 문제</div>`;
+    touched.forEach(p => {
       const w = p.write && p.write.eval;
-      h += `<div class="card"><p class="lbl">${i + 1}. ${esc(catOf(p.cat).ko)} · ${p.kind === 'tricky' ? '돌발' : '일반'}</p><p style="margin:0 0 6px;font-size:14.5px">${esc(p.ko)}</p>
-        ${p.write ? `<div class="cmp"><div><div class="k">영작 ${w ? '· ' + esc((VK[w.verdict] || [''])[0]) : ''}</div><div class="v">${esc(p.write.text)}</div></div>${w && w.essential && w.essential !== w.original ? `<div><div class="k">교정</div><div class="v">${esc(w.essential)}</div></div>` : ''}${w && w.natural ? `<div class="nat"><div class="k">NATURAL</div><div class="v">${esc(w.natural)}</div></div>` : ''}</div>` : ''}
-        ${(p.speaks || []).map((a, j) => attemptLine(a, '말하기 ' + (j + 1))).join('')}</div>`;
+      h += `<div class="card"><p class="lbl">${esc(catOf(p.cat).ko)} · ${p.kind === 'tricky' ? '돌발' : '일반'}</p><p style="margin:0 0 6px;font-size:14.5px">${esc(p.ko)}</p>
+        ${p.write ? `<div class="cmp" style="margin:0 0 8px"><div><div class="k">영작 ${w ? '· ' + esc((VK[w.verdict] || [''])[0]) : ''}</div><div class="v">${esc(p.write.text)}</div></div>${w && w.essential && w.essential !== w.original ? `<div><div class="k">교정</div><div class="v">${esc(w.essential)}</div></div>` : ''}${w && w.natural ? `<div class="nat"><div class="k">NATURAL</div><div class="v">${esc(w.natural)}</div></div>` : ''}</div>` : ''}
+        ${(p.speaks || []).map((a, j) => attemptFull(a, '말하기 ' + (j + 1) + (a.mode === 'retell' ? ' · 다시 표현' : ''))).join('')}</div>`;
     });
   }
-  const L = d.log.filter(l => (l.attempts || []).length || (l.msgs || []).length || l.type === 'mock');
+  if (untouched.length) h += `<p class="hint">아직 안 한 오늘의 문제 ${untouched.length}개는 실전 탭에서 이어서 할 수 있어요.</p>`;
+  const L = d.log.filter(l => (l.attempts || []).length || (l.msgs || []).length || (l.type === 'mock' && l.items.some(x => x.attempt)));
   if (L.length) {
     h += `<div class="sec-title" style="margin-left:0">훈련 기록</div>`;
     L.forEach(l => {
       const name = { spont: '즉흥 발화', finish: '끝맺음', opic: 'OPIc 연습', roleplay: '롤플레이', mock: 'OPIc 모의시험' }[l.type] || l.type;
-      h += `<details class="card"><summary>${esc(name)} · ${esc((l.situation || l.stem || l.q || '').slice(0, 34))}…</summary>`;
-      if (l.type === 'roleplay') h += `<div class="chat">${l.msgs.map(m => `<div class="msg ${m.role === 'ai' ? 'ai' : 'me'}">${esc(m.text)}${m.audioId ? `<audio controls preload="none" data-aid="${esc(m.audioId)}"></audio>` : ''}</div>`).join('')}</div>${l.feedback ? `<p class="note">${esc(l.feedback.summary)}</p>` : ''}`;
+      h += `<div class="card"><p class="lbl">${esc(name)}</p><p style="margin:0 0 6px;font-size:14.5px">${esc(l.situation || l.stem || l.q || '')}</p>`;
+      if (l.type === 'roleplay') h += `<div class="chat">${l.msgs.map(m => `<div class="msg ${m.role === 'ai' ? 'ai' : 'me'}">${esc(m.text)}${m.audioId ? `<audio controls preload="none" data-aid="${esc(m.audioId)}"></audio>` : ''}</div>`).join('')}</div>${l.feedback ? `<p class="note">${esc(l.feedback.summary)}</p>${(l.feedback.key_errors || []).map(x => `<p class="note"><s>${esc(x.original)}</s> → <b>${esc(x.better)}</b></p>`).join('')}` : ''}`;
       else if (l.type === 'mock') h += `<p class="note">${esc(l.report ? l.report.overall : '피드백 전')}</p><button class="btn sm" data-act="mockOpen" data-id="${l.id}">자세히 보기</button>`;
-      else h += (l.attempts || []).map((a, j) => attemptLine(a, (j + 1) + '회') + (a.eval && (a.eval.essential || a.eval.upgrade) ? `<p class="note">→ ${esc(a.eval.essential || a.eval.upgrade)}</p>` : '')).join('');
-      h += `</details>`;
+      else h += (l.attempts || []).map((a, j) => attemptFull(a, (j + 1) + '회')).join('');
+      h += `</div>`;
     });
   }
-  if (mastered.length) h += `<div class="sec-title" style="margin-left:0">숙달한 표현</div><div class="card">${mastered.map(e => `<div><b>${esc(e.en)}</b> <span class="hint">${esc(e.ko || '')}</span></div>`).join('')}</div>`;
+  h += extra;
+  if (!touched.length && !L.length && !extra) h += `<p class="hint">이 날은 말하기 기록이 없어요.</p>`;
   return h;
 }
 
 /* ---------- render ---------- */
-const VIEWS = { home: vHome, real: vReal, prob: vProb, spont: vSpont, finish: vFinish, rpPick: vRpPick, rp: vRp, review: vReview, opic: vOpic, oq: vOq, mock: vMock, bank: vBank, drill: vDrill, settings: vSettings };
-const TAB_OF = { home: 'home', real: 'real', prob: 'real', spont: 'real', finish: 'real', rpPick: 'real', rp: 'real', review: 'real', opic: 'opic', oq: 'opic', mock: 'opic', bank: 'bank', drill: 'bank', settings: 'settings' };
+const VIEWS = { home: vHome, real: vReal, prob: vProb, spont: vSpont, finish: vFinish, rpPick: vRpPick, rp: vRp, review: vReview, opic: vOpic, oq: vOq, mock: vMock, settings: vSettings };
+const TAB_OF = { home: 'home', real: 'real', prob: 'real', spont: 'real', finish: 'real', rpPick: 'real', rp: 'real', review: 'real', opic: 'opic', oq: 'opic', mock: 'opic', settings: 'settings' };
 function render() {
   const app = $('#app');
   // keep typed text across re-render
@@ -1047,7 +987,7 @@ document.addEventListener('click', async (e) => {
       const p = findProblem(id); const text = ($('#wtext').value || '').trim();
       if (!text) { toast('영어 문장을 먼저 써 주세요.'); break; }
       timerAuto();
-      const pr = P.realEval({ situation: p.ko, kind: p.kind, role: p.role, mode: 'write', text });
+      const pr = P.realEval({ myExprs: EXT.myExprList(), situation: p.ko, kind: p.kind, role: p.role, mode: 'write', text });
       copyStore['w' + p.id] = promptText(pr);
       const ev = await runAI('w' + p.id, () => AI.json(pr));
       p.write = { text, eval: ev, at: Date.now() };
@@ -1098,34 +1038,6 @@ document.addEventListener('click', async (e) => {
     case 'mockEnd': { let l; for (const kk in S.data.days) { const x = S.data.days[kk].log.find(y => y.id === id); if (x) l = x; } if (l) { Rec.cancel(); S.rec = null; l.endedAt = Date.now(); save(); render(); } break; }
     case 'mockReport': { let l; for (const kk in S.data.days) { const x = S.data.days[kk].log.find(y => y.id === id); if (x) l = x; } if (l) await mockReport(l); break; }
 
-    case 'saveBridge': {
-      const ctx = el.dataset.ctx || ''; const ev = findEvalByCtx(ctx); if (!ev) break;
-      const b = (ev.bridges || [])[+el.dataset.i]; if (!b) break;
-      if (S.data.exprs.some(x => x.en.toLowerCase() === b.en.toLowerCase())) { toast('이미 표현장에 있어요.'); break; }
-      const src = findSrcByCtx(ctx);
-      S.data.exprs.push({ id: uid(), ko: b.ko, en: b.en, note: b.note || '', orig: ev.original || '', fixed: ev.essential || '', cat: src && src.cat || '', date: today(), status: 'learning', drills: [], spoken: false, fromKo: hasHangul(b.ko) });
-      save(); toast('표현장에 저장했어요. 응용 3문제로 숙달해요.'); break;
-    }
-    case 'bankF': S.p.f = v; render(); break;
-    case 'addExpr': {
-      const en = ($('#nx-en').value || '').trim(); const ko = ($('#nx-ko').value || '').trim();
-      if (!en) { toast('영어 표현을 적어 주세요.'); break; }
-      S.data.exprs.push({ id: uid(), en, ko, note: '', cat: '', date: today(), status: 'learning', drills: [], spoken: false, fromKo: false });
-      save(); render(); break;
-    }
-    case 'exprOpen': { const x = S.data.exprs.find(y => y.id === id); if (x) openSheet(exprSheet(x)); break; }
-    case 'exprSave': { const x = S.data.exprs.find(y => y.id === id); if (x) { x.en = ($('#ex-en').value || x.en).trim(); x.ko = ($('#ex-ko').value || '').trim(); save(); closeSheet(); render(); } break; }
-    case 'exprDel': { S.data.exprs = S.data.exprs.filter(y => y.id !== id); save(); closeSheet(); render(); break; }
-    case 'exprDrill': closeSheet(); go('drill', { id, fresh: true }); break;
-    case 'drillMake': {
-      const x = S.data.exprs.find(y => y.id === id); if (!x) break;
-      const j = await runAI('dm' + id, () => AI.json(Object.assign(P.drillMake({ en: x.en, ko: x.ko }), { model: AI.chatModel })));
-      if (j && (j.drills || []).length) { const set = j.drills.slice(0, 3).map(d => ({ ko: String(d.ko), text: '', res: null })); if (x.status === 'mastered') S.p.round = set; else x.drills = set; S.p.fresh = false; save(); render(); }
-      break;
-    }
-    case 'drillRedo': { const x = S.data.exprs.find(y => y.id === id); const set = S.p.round || (x && x.drills); if (set) { set[+el.dataset.i].res = null; S.rec = null; render(); } break; }
-    case 'drillWrite': { const x = S.data.exprs.find(y => y.id === id); const i = +el.dataset.i; const t = ($('#dt' + i).value || '').trim(); if (x && t) await drillCheck(x, i, t, 'dw' + id + i, null); break; }
-
     case 'saveKey': { S.data.settings.apiKey = ($('#set-key').value || '').trim(); S.data.settings.setupDone = true; syncAI(); S.testOk = false; save(); toast('저장했어요'); render(); break; }
     case 'testKey': {
       S.data.settings.apiKey = ($('#set-key').value || '').trim(); syncAI(); save(); S.testOk = false;
@@ -1140,6 +1052,7 @@ document.addEventListener('click', async (e) => {
     case 'delAudio': openSheet(`<h2 style="margin:0 0 8px">녹음을 모두 지울까요?</h2><p class="hint">글로 된 기록과 평가는 남고, 녹음 파일만 지워져요. 되돌릴 수 없어요.</p><div class="row"><button class="btn ghost" data-act="closeSheet">취소</button><button class="btn" style="background:var(--work)" data-act="delAudioYes">모두 삭제</button></div>`); break;
     case 'delAudioYes': await Store.audioClear().catch(() => {}); closeSheet(); toast('녹음을 모두 지웠어요'); render(); break;
     case 'export': await exportData(v === '1'); break;
+    default: if (EXT.actions[a]) await EXT.actions[a](el, e);
   }
 });
 function findEvalByCtx(ctx) {
@@ -1179,7 +1092,7 @@ async function importFile(file) {
     const key = S.data.settings.apiKey;
     S.data = Object.assign(DEFAULT(), j.data); S.data.settings = Object.assign(DEFAULT().settings, j.data.settings || {}); S.data.settings.apiKey = key;
     if (j.audio) for (const k in j.audio) { const x = j.audio[k]; const b = await (await fetch(x.b64)).blob(); await Store.audioPut(k, { blob: b, mime: x.mime, at: x.at, day: x.day }); }
-    syncAI(); await save(true); toast('백업을 가져왔어요'); render();
+    EXT.migrate(S.data); syncAI(); await save(true); toast('백업을 가져왔어요'); render();
   } catch (e) { toast('이 파일은 가져올 수 없어요. Pixie Speaking 백업 파일인지 확인해 주세요.'); }
 }
 
@@ -1200,11 +1113,14 @@ async function init() {
   // a new day starts with the timer off
   if (S.data.timer.running && S.data.timer.day !== today()) S.data.timer.running = false;
   S.data.timer.day = today();
-  syncAI(); Speech.pick();
+  EXT.migrate(S.data); syncAI(); Speech.pick();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   render();
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
 }
 window.__PSS = S; // for tests
+const API = { S, D, P, AI, Speech, esc, uid, today, addDays, catOf, toast, openSheet, closeSheet, go, render, save, runAI, errBox, topBar, speakUI, findEvalByCtx, findSrcByCtx, timerAuto,
+  register(x) { Object.assign(VIEWS, x.views || {}); Object.assign(TAB_OF, x.tabs || {}); Object.assign(MODE_OF, x.modes || {}); Object.assign(EXT.actions, x.actions || {}); ['keyExprHTML', 'myExprList', 'rpTargets', 'recordUsage', 'homeCard', 'dayHTML', 'settingsHTML', 'migrate', 'dueCount'].forEach(k => { if (x[k]) EXT[k] = x[k]; }); } };
+(window.PSS_EXT || []).forEach(f => { try { f(API); } catch (er) { console.error(er); } });
 init();
 })();
